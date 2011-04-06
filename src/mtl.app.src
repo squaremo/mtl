@@ -1,12 +1,9 @@
 {application, mtl,
  [
-  {description, ""},
+  {description, "MTL server"},
   {vsn, "1"},
   {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
+  {applications, [kernel, stdlib, erlzmq]},
   {mod, { mtl_app, []}},
   {env, []}
  ]}.
