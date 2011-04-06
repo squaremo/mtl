@@ -102,7 +102,9 @@ handle_info({zmq, Sock, Data}, State = #state{ command_state = CmdSt }) ->
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{ socket = Socket, context = Context }) ->
+    erlzmq:close(Socket, 2000),
+    erlzmq:term(Context, 2000),
     ok.
 
 %%--------------------------------------------------------------------
