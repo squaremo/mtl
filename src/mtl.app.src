@@ -1,0 +1,12 @@
+{application, mtl,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { mtl_app, []}},
+  {env, []}
+ ]}.
