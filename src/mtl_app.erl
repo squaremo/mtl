@@ -10,6 +10,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
+    io:format("Starting MTL server~n"),
     mtl_sup:start_link().
 
 stop(_State) ->
