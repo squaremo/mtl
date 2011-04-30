@@ -82,7 +82,7 @@ handle_info({zmq, _Sock, Data}, State = #state{ command_state = CmdSt }) ->
             {command, Identity, Cmd, Args} ->
                 {ok, Reply, State1} =
                     handle_command(Identity, Cmd, Args, State),
-                ?TRACE("Command: ~p~nReply: ~p~n", [Cmd, Reply]),
+                ?TRACE("Command: ~p ~p~nReply: ~p~n", [Cmd, Args, Reply]),
                 {ok, State2} = send_reply(Identity, Reply, State1), 
                 fresh_command(State2);
             {more, NewCmdSt} ->
@@ -92,6 +92,7 @@ handle_info({zmq, _Sock, Data}, State = #state{ command_state = CmdSt }) ->
                 more_command(State, NewCmdSt);
             {error, _} ->
                 %% MTL says just drop it all
+                ?TRACE("Invalid, dropping ~p with ~p", [Data, CmdSt]),
                 fresh_command(State)
         end,
     {noreply, NewState}.
