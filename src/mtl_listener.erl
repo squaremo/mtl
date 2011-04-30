@@ -44,9 +44,8 @@ init([]) ->
     {ok, Socket} = erlzmq:socket(Context, [?ROUTER, {active, true}]),
     ok = erlzmq:bind(Socket, "tcp://0.0.0.0:5975"),
     io:format("Listening on tcp://0.0.0.0:5975~n"),
-    {ok, #state{ context = Context,
-                 socket = Socket,
-                 command_state = init_command_state() }}.
+    {ok, fresh_command(#state{ context = Context,
+                               socket = Socket})}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -76,24 +75,26 @@ handle_cast(_Msg, State) ->
 %%                                       {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info({zmq, Sock, Data}, State = #state{ command_state = CmdSt }) ->
+handle_info({zmq, _Sock, Data}, State = #state{ command_state = CmdSt }) ->
     ?TRACE("Data ~p~n", [Data]),
-    State1 =
+    NewState =
         case msg(CmdSt, Data) of
-            {command, Cmd} ->
-                {ok, Reply, NewState} = handle_command(Cmd, State),
+            {command, Identity, Cmd, Args} ->
+                {ok, Reply, State1} =
+                    handle_command(Identity, Cmd, Args, State),
                 ?TRACE("Command: ~p~nReply: ~p~n", [Cmd, Reply]),
-                send_reply(Reply, NewState),
-                NewState#state{ command_state = init_command_state() };
+                {ok, State2} = send_reply(Identity, Reply, State1), 
+                fresh_command(State2);
             {more, NewCmdSt} ->
                 %% Check that there's more to come -- this won't
                 %% work with active, of course.
-                %{ok, 1} = erlzmq:getsockopt(Sock, rcvmore),
-                State#state{ command_state = NewCmdSt };
-            {error, Reason} ->
-                State#state{ command_state = init_command_state() }
+                %% {ok, 1} = erlzmq:getsockopt(Sock, rcvmore),
+                more_command(State, NewCmdSt);
+            {error, _} ->
+                %% MTL says just drop it all
+                fresh_command(State)
         end,
-    {noreply, State1}.
+    {noreply, NewState}.
 
 %%--------------------------------------------------------------------
 %% Function: terminate(Reason, State) -> void()
@@ -118,33 +119,54 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-init_command_state() ->
-    address.
+fresh_command(State = #state{}) ->
+    State#state{ command_state = identity }.
 
-msg(address, Addr) ->
+more_command(State = #state{}, NewCmdState) ->
+    State#state{ command_state = NewCmdState }.
+
+msg(identity, Addr) ->
     {more, {empty, Addr}};
 msg({empty, Addr}, <<>>) ->
     {more, {name, Addr}};
 msg({name, Addr}, Command) ->
     {more, {body, Addr, Command}};
 msg({body, Addr, Command}, Body) ->
-    {command, command(Addr, Command, Body)};
+    case parse_command(Command, Body) of
+        {ok, CommandAtom, Args} ->
+            {command, Addr, CommandAtom, Args};
+        Err = {error, _} ->
+            Err
+    end;
 msg(_, Msg) ->
     ?TRACE("invalid message ~p~n", [Msg]),
     {error, invalid_message}.
 
-command(Addr, Name0, Body) ->
-    Name = string:to_lower(unicode:characters_to_list(Name0)),
-    {Addr, Name, Body}.
+parse_command(CommandBin, Body) ->
+    case catch list_to_existing_atom(
+                 string:to_lower(unicode:characters_to_list(CommandBin))) of
+        {'EXIT', _} ->
+            {error, unknown_command};
+        Command ->
+            case json:decode(Body) of
+                {ok, {Args}} when is_list(Args) ->
+                    {ok, Command, Args};
+                _Else ->
+                    {error, invalid_json}
+            end
+    end.
 
-handle_command({Addr, "connection.open", Body}, State) ->
-    Reply = {Addr, "201",
-             "{\"status\":\"Ready\",\"profiles\":[\"test\"]}"},
+handle_command(Addr, 'connection.open', Args, State) ->
+    Reply = {"201", [{status, <<"Ready">>}, {profiles, [<<"test">>]}]},
     {ok, Reply, State}.
 
-send_reply({Addr, Code, Body}, State = #state{ socket = Sock }) ->
+%% This first variation to avoid an extra case in the main loop
+send_reply(_, none, State) ->
+    {ok, State};
+send_reply(Addr, {Code, Args}, State = #state{ socket = Sock }) ->
+    {ok, ArgsBin} = json:encode({Args}),
     ok = erlzmq:send(Sock, Addr, [sndmore]),
     ok = erlzmq:send(Sock, <<>>, [sndmore]),
     ok = erlzmq:send(Sock, iolist_to_binary(Code), [sndmore]),
-    ok = erlzmq:send(Sock, iolist_to_binary(Body)),
+    ok = erlzmq:send(Sock, ArgsBin),
     {ok, State}.
