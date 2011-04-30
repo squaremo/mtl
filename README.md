@@ -10,4 +10,4 @@ http://rfc.zeromq.org/spec:11 for the specification of MTL.
     $ ./rebar get-deps
     $ ./rebar compile
 
-    $ erl +K -pa deps/erlzmq/ebin ebin -s mtl
+    $ erl +K true -pa deps/*/ebin ebin -s mtl
